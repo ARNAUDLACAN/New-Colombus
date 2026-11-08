@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Colombus — Briefs des entretiens</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .sc { margin-bottom: 18px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .secret { border-color: rgba(255,107,74,.5); }
+  .two > .card + .card { margin-top: 0; }
+  .brief { max-height: none; }
+  @media print {
+    html, body { background: #fff !important; color: #111; }
+    .top, .noprint { display: none !important; }
+    .card, .panel { background: #fff !important; box-shadow: none !important; border: 1px solid #bbb !important; color: #111; }
+    h2, h3, .brief, p, td, th, b { color: #111 !important; }
+    .two { display: block; }
+    .half { page-break-after: always; break-after: page; }
+    .wrap { max-width: none; padding: 0; }
+  }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="top"><div id="brand"></div><span class="sp"></span><button class="btn coral sm" onclick="window.print()">Imprimer ou enregistrer en PDF</button></div>
+<div class="wrap">
+  <div class="card noprint"><h3>Briefs des entretiens</h3><p class="small muted">Pour jouer vous-même un collaborateur en classe : donnez le brief directeur à l'équipe, gardez le brief collaborateur, puis saisissez la note dans l'espace animateur (colonne Entretien). À l'impression, chaque brief occupe sa propre page pour pouvoir être découpé et distribué.</p>
+  <div class="row"><label class="check" style="margin:0"><input type="checkbox" id="prog" checked> Seulement les entretiens du programme de cette partie</label><span class="sp"></span><label class="check" style="margin:0"><input type="checkbox" id="showMgr" checked> Briefs directeur</label><label class="check" style="margin:0"><input type="checkbox" id="showCol" checked> Briefs collaborateur</label></div></div>
+  <div id="list"></div>
+  <div class="card half" id="grille"></div>
+</div>
+<script src="/common.js"></script>
+<script>
+$('#brand').innerHTML = brandHTML('Briefs des entretiens');
+let B = null;
+fetch(`/api/sessions/${qs('code')}/briefs?token=${encodeURIComponent(qs('token'))}`).then(r => r.ok ? r.json() : Promise.reject()).then(j => { B = j; render(); }).catch(() => { $('#list').innerHTML = '<div class="card">Accès refusé.</div>'; });
+['prog', 'showMgr', 'showCol'].forEach(id => $('#' + id).onchange = render);
+function render() {
+  const inProg = new Map(B.programme.map((p, i) => [p.entretien, i + 1]));
+  const list = B.entretiens.filter(e => !$('#prog').checked || inProg.has(e.id)).sort((x, y) => (inProg.get(x.id) || 99) - (inProg.get(y.id) || 99));
+  const nom = id => (B.collabs.find(c => c.id === id) || {}).nom;
+  const portrait = id => (B.collabs.find(c => c.id === id) || {}).portrait;
+  $('#list').innerHTML = list.map(e => {
+    const per = inProg.get(e.id) ? 'Période ' + inProg.get(e.id) + ' · ' : '';
+    const mgr = $('#showMgr').checked ? `<div class="card half"><h3>${per}${esc(e.theme)} · brief du directeur</h3><h2>Face à vous : ${esc(nom(e.collab))}</h2><div class="brief">${esc(e.manager)}</div></div>` : '';
+    const col = $('#showCol').checked ? `<div class="card half secret"><h3>${per}${esc(e.theme)} · brief de ${esc(nom(e.collab))} (confidentiel)</h3><h2>Vous êtes ${esc(nom(e.collab))}</h2><p class="small muted">${esc(portrait(e.collab))}</p><div class="brief">${esc(e.collaborateur)}</div>${e.vigilance ? `<div class="alert" style="margin-top:12px"><b>Point de vigilance pour l'évaluation :</b> ${esc(e.vigilance)}</div>` : ''}<p class="tiny muted" style="margin-top:12px">Pour jouer : ne cédez pas trop vite, ouvrez-vous si vous vous sentez écouté et reconnu, fermez-vous si l'on passe en force. Environ 10 minutes.</p></div>` : '';
+    return `<div class="sc ${mgr && col ? 'two' : ''}">${mgr}${col}</div>`;
+  }).join('') || '<div class="card muted">Aucun entretien.</div>';
+  $('#grille').innerHTML = `<h3>Grille d'évaluation des entretiens</h3><table><tr><th>Critère</th><th>Ce qui est observé</th><th class="num">0 à 5</th></tr>${B.grille.map(g => `<tr><td><b>${esc(g.label)}</b></td><td>${esc(g.aide)}</td><td class="num">…</td></tr>`).join('')}</table><p class="small muted">Note sur 20 = total des six critères ramené sur 20.</p>`;
+}
+</script>
+</body>
+</html>

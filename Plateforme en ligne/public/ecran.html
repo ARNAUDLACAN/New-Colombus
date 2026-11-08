@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Colombus — Projection</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="screen">
+<div class="top"><div id="brand"></div><span class="sp"></span><span id="hdr" class="row"></span></div>
+<div class="wrap" id="view" style="max-width:1500px"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/common.js"></script>
+<script>
+$('#brand').innerHTML = brandHTML('Projection');
+const sock = io(); let S = null, mode = 'auto';
+sock.on('connect', () => sock.emit('admin:join', { code: qs('code'), token: qs('token') }, r => { if (!r.ok) $('#view').innerHTML = '<div class="card">Accès refusé.</div>'; }));
+sock.on('state', st => { S = st; render(); });
+function render() {
+  const ph = S.phase, p = S.periode;
+  $('#hdr').innerHTML = `<span class="pill">Code <span class="code">${S.code}</span></span><span class="pill coral">${ph === 'periode' ? `Période ${p} / ${S.config.nbPeriodes}` : ph === 'resultats' ? `Résultats P${p}` : PHASES[ph]}</span>`;
+  if (ph === 'lobby') {
+    $('#view').innerHTML = `<div class="hero">${compassSVG}<h1>New <span>Colombus</span></h1><p class="sub" style="font-size:1.5rem">Rejoignez la partie sur <b style="color:var(--txt)">${esc(location.host)}</b></p><div class="code" style="font-size:6rem;color:var(--coral);margin-top:20px">${S.code}</div></div>
+      <div class="grid4">${S.agences.map((a, i) => `<div class="kpi" style="--c:${COLORS[i % 10]}"><div class="lbl">${esc(a.name)}</div><div class="val" style="font-size:1.4rem">${a.equipe ? esc(a.equipe) : '<span class="muted">en attente</span>'}</div></div>`).join('')}</div>`;
+    return;
+  }
+  if (ph === 'periode') {
+    const a0 = S.agences[0];
+    $('#view').innerHTML = `<div class="card accent"><h3>Période ${p} en cours</h3>${a0.dilemme ? `<h1>${esc(a0.dilemme.titre)}</h1><p style="font-size:1.25rem">${esc(a0.dilemme.texte)}</p>` : ''}${a0.scenario ? `<p class="muted" style="font-size:1.1rem">Entretien de la période : ${esc(a0.scenario.theme)} · avec ${esc(a0.scenario.collabNom)}</p>` : ''}</div>
+      <div class="grid4" style="margin-top:20px">${S.agences.map((a, i) => `<div class="kpi" style="--c:${COLORS[i % 10]}"><div class="lbl">${esc(a.name)} · ${esc(a.equipe)}</div><div class="val" style="font-size:1.4rem">${a.valide ? '<span class="pos">Décisions validées</span>' : '<span class="muted">En réflexion…</span>'}</div><div class="small muted" style="margin-top:6px">${a.dilemme ? (a.choixDilemme ? 'Dilemme tranché' : 'Dilemme à trancher') : ''}${a.entretien && a.entretien.termine ? ' · entretien conclu' : ''}</div></div>`).join('')}</div>`;
+    return;
+  }
+  const chart = (k, opts) => lineChart(S.agences.map((a, i) => ({ name: a.name, color: COLORS[i % 10], bold: true, values: [a.periode0, ...a.history].map(r => ({ x: r.periode, y: r[k] })) })), { h: 260, ...opts });
+  $('#view').innerHTML = `<div class="grid2"><div class="card accent"><h3>Classement ${ph === 'fin' ? 'final' : 'après la période ' + p}</h3><table style="font-size:1.15rem"><tr><th>Rang</th><th>Agence</th><th class="num">Score</th><th class="num">Économique</th><th class="num">Social</th></tr>${S.classement.map((r, i) => `<tr><td class="rank" style="font-size:2rem">${i + 1}</td><td><b>${esc(r.name)}</b><br><span class="small muted">${esc(r.equipe)}</span></td><td class="num"><b style="font-size:1.6rem">${r.score ? fmt1(r.score.total) : '–'}</b></td><td class="num">${r.score ? fmt1(r.score.eco) : '–'}</td><td class="num">${r.score ? fmt1(r.score.social) : '–'}</td></tr>`).join('')}</table></div>
+    <div class="card"><h3>Chiffre d'affaires</h3>${chart('ca')}</div><div class="card"><h3>Baromètre QVCT</h3>${chart('barometre', { min: 0, max: 100 })}</div><div class="card"><h3>Engagement</h3>${chart('engagement', { min: 0, max: 100 })}</div></div>`;
+}
+</script>
+</body>
+</html>

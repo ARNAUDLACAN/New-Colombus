@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Colombus — Animateur</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="top"><div id="brand"></div><span class="sp"></span><span id="hdr" class="row"></span></div>
+<div class="wrap" id="view"></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/common.js"></script>
+<script>
+$('#brand').innerHTML = brandHTML('Espace animateur');
+const sock = io();
+let CAT = null, S = null, sel = null;
+const CODE = qs('code'), TOKEN = qs('token');
+const store = () => JSON.parse(localStorage.getItem('nc-admin') || '[]');
+fetch('/api/catalogue').then(r => r.json()).then(c => { CAT = c; CODE ? join() : vCreate(); });
+
+// ------------------------------------------------------------ création
+function progTable(prog, n, editable = true) {
+  return `<table><tr><th>Période</th><th>Entretien</th><th>Dilemme</th></tr>${Array.from({ length: n }, (_, i) => {
+    const p = prog[i] || CAT.defaut[i] || {};
+    return `<tr><td><b>P${i + 1}</b></td><td><select data-i="${i}" data-k="entretien" ${editable ? '' : 'disabled'}><option value="aucun">Aucun entretien</option>${CAT.entretiens.map(e => `<option value="${e.id}" ${p.entretien === e.id ? 'selected' : ''}>${esc(e.theme)} · ${esc(CAT.collabs.find(c => c.id === e.collab).nom)}${e.brouillon ? ' (nouveau)' : ''}</option>`).join('')}</select></td>
+      <td><select data-i="${i}" data-k="dilemme" ${editable ? '' : 'disabled'}><option value="aucun">Aucun dilemme</option>${CAT.dilemmes.map(d => `<option value="${d.id}" ${p.dilemme === d.id ? 'selected' : ''}>${esc(d.titre)}${d.brouillon ? ' (nouveau)' : ''}</option>`).join('')}</select></td></tr>`;
+  }).join('')}</table>`;
+}
+const readProg = () => { const p = []; $$('select[data-i]').forEach(s => { const i = +s.dataset.i; p[i] = p[i] || {}; p[i][s.dataset.k] = s.value; }); return p; };
+
+function vCreate() {
+  const prev = store();
+  $('#view').innerHTML = `<div class="grid2"><div class="card accent"><h2>Nouvelle partie</h2>
+    <label>Titre</label><input id="titre" value="New Colombus">
+    <div class="grid2"><div><label>Campus</label><input id="campus" placeholder="Marseille"></div><div><label>Groupe</label><input id="groupe" placeholder="PGE M1 · groupe 3"></div></div>
+    <div class="grid2"><div><label>Nombre d'agences (équipes)</label><input id="nbA" type="number" min="1" max="10" value="4"></div><div><label>Nombre de périodes</label><select id="nbP">${[3, 4, 5, 6].map(n => `<option ${n === 5 ? 'selected' : ''}>${n}</option>`).join('')}</select></div></div>
+    <label>Handicap survenu en cours de carrière (Nicolas)</label><select id="hp"><option value="0">Désactivé</option>${[2, 3, 4, 5, 6].map(n => `<option value="${n}" ${n === 3 ? 'selected' : ''}>À l'ouverture de la période ${n}</option>`).join('')}</select>
+    <div class="tiny muted" style="margin-top:4px">Son entretien et son dilemme ne sont joués qu'après la survenue ; sinon ils sont remplacés automatiquement.</div>
+    ${CAT.animateurCodeRequis ? '<label>Code animateur</label><input id="acode" type="password">' : ''}
+    <label>Programme des périodes</label><div id="prog">${progTable([], 5)}</div>
+    <div class="row" style="margin-top:16px"><span class="sp"></span><button class="btn coral" id="create">Créer la partie</button></div></div>
+    <div class="card"><h3>Vos parties sur cet appareil</h3>${prev.length ? `<table>${prev.slice().reverse().map(p => `<tr><td><span class="code">${esc(p.code)}</span></td><td>${esc(p.titre)}<br><span class="small muted">${esc(p.campus || '')} ${new Date(p.t).toLocaleDateString('fr-FR')}</span></td><td><a class="btn sm" href="/animateur?code=${p.code}&token=${p.token}">Ouvrir</a></td></tr>`).join('')}</table>` : '<p class="muted">Aucune partie pour le moment.</p>'}
+    <p class="small muted">Gardez le lien de chaque partie : il contient votre clé d'animateur.</p></div></div>`;
+  $('#nbP').onchange = () => { $('#prog').innerHTML = progTable(readProg(), +$('#nbP').value); };
+  $('#create').onclick = () => {
+    const config = { titre: $('#titre').value, campus: $('#campus').value, groupe: $('#groupe').value, nbAgences: +$('#nbA').value, nbPeriodes: +$('#nbP').value, handicapPeriode: +$('#hp').value, programme: readProg() };
+    sock.emit('admin:create', { config, animateurCode: ($('#acode') || {}).value }, r => {
+      if (!r.ok) return toast(r.error, true);
+      const l = store(); l.push({ code: r.code, token: r.token, titre: config.titre, campus: config.campus, t: Date.now() }); localStorage.setItem('nc-admin', JSON.stringify(l));
+      location.href = `/animateur?code=${r.code}&token=${r.token}`;
+    });
+  };
+}
+
+// ------------------------------------------------------------ tableau de bord
+function join() { sock.emit('admin:join', { code: CODE, token: TOKEN }, r => { if (!r.ok) { toast(r.error, true); setTimeout(() => location.href = '/animateur', 1500); } }); }
+sock.on('connect', () => { if (CODE) join(); });
+sock.on('state', st => { S = st; render(); });
+const act = (action, extra = {}) => emit(sock, 'admin:action', { code: CODE, token: TOKEN, action, ...extra });
+
+function render() {
+  if (!S || !CAT) return;
+  const ph = S.phase, p = S.periode, N = S.config.nbPeriodes;
+  $('#hdr').innerHTML = `<span class="pill">Code <span class="code">${S.code}</span></span><span class="pill coral">${ph === 'periode' ? `Période ${p} / ${N}` : ph === 'resultats' ? `Résultats P${p}` : PHASES[ph]}</span><span class="pill ${S.ia ? 'teal' : 'warn'}">${S.ia ? 'IA activée' : 'Mode sans IA'}</span>`;
+  const valid = S.agences.filter(a => a.valide).length;
+  let ctrl = '';
+  if (ph === 'lobby' || ph === 'resultats') ctrl = `<button class="btn coral" id="open">Ouvrir la période ${p + 1}</button>`;
+  if (ph === 'periode') ctrl = `<button class="btn coral" id="close">Clôturer et calculer la période ${p}</button><span class="small muted">${valid} / ${S.agences.length} agences ont validé. Les agences non validées gardent leur brouillon.</span>`;
+  if (ph === 'fin') ctrl = '<span class="pill teal">Partie terminée</span>';
+  const joinUrl = location.origin + '/?code=' + S.code;
+  const rows = S.agences.map(a => {
+    const e = a.entretien, sc = a.scenario;
+    const noteIn = val => ` <input type="number" min="0" max="20" step="0.5" class="noteIn" data-a="${a.id}" value="${val}" placeholder="note" title="Note sur 20 (entretien joué en classe ou correction)" style="width:80px;padding:5px 7px;display:inline-block">`;
+    const entCell = !sc ? '<span class="muted">–</span>' : !e ? `<span class="muted">Pas commencé</span>${ph === 'periode' ? noteIn('') + '<div class="tiny muted">Joué en classe ? Saisissez la note.</div>' : ''}` : e.enClasse ? `Joué en classe · <b>${fmt1(e.noteAnimateur != null ? e.noteAnimateur : e.note)}/20</b>${ph === 'periode' ? noteIn(e.noteAnimateur != null ? e.noteAnimateur : '') : ''}` : `${e.termine ? '✓' : 'En cours'} · ${e.transcript.filter(m => m.from === 'manager').length} répl. ${e.note != null ? '· <b>' + fmt1(e.noteAnimateur != null ? e.noteAnimateur : e.note) + '/20</b>' : ''}${ph === 'periode' && e.termine ? ` <input type="number" min="0" max="20" step="0.5" class="noteIn" data-a="${a.id}" value="${e.noteAnimateur != null ? e.noteAnimateur : ''}" placeholder="note" style="width:80px;padding:5px 7px;display:inline-block">` : ''}`;
+    return `<tr class="${sel === a.id ? 'me' : ''}"><td><b>${esc(a.name)}</b><br><span class="small muted">${esc(a.equipe || 'pas encore d\'équipe')}</span></td><td><span class="dot ${a.connectes ? 'on' : ''}"></span> ${a.connectes}</td>
+      <td>${!a.dilemme ? '–' : a.choixDilemme ? 'Option ' + a.choixDilemme.toUpperCase() : '<span class="warn">À trancher</span>'}</td><td>${entCell}</td><td>${a.valide ? '<span class="pos">✓ Validé</span>' : ph === 'periode' ? '<span class="muted">En cours</span>' : '–'}</td><td><button class="btn sm" data-sel="${a.id}">Détail</button></td></tr>`;
+  }).join('');
+  const hist = S.agences.filter(a => a.history.length);
+  const chart = (k, title, opts) => lineChart(S.agences.map((a, i) => ({ name: a.name, color: COLORS[i % COLORS.length], values: [a.periode0, ...a.history].map(r => ({ x: r.periode, y: typeof k === 'function' ? k(r) : r[k] })) })), { h: 200, title, ...opts });
+  $('#view').innerHTML = `
+  <div class="card accent"><div class="row"><div><h2 style="margin:0">${esc(S.config.titre)}</h2><span class="muted small">${esc(S.config.campus)} ${esc(S.config.groupe)}</span></div><span class="sp"></span>
+    <div style="text-align:right"><div class="small muted">Les équipes rejoignent la partie sur</div><b>${esc(location.host)}</b> avec le code <span class="code" style="font-size:1.4rem;color:var(--coral)">${S.code}</span></div></div>
+    <div class="row" style="margin-top:16px">${ctrl}<span class="sp"></span><a class="btn ghost sm" target="_blank" href="/ecran?code=${S.code}&token=${TOKEN}">Écran de projection</a><a class="btn ghost sm" target="_blank" href="/briefs?code=${S.code}&token=${TOKEN}">Briefs des entretiens</a><a class="btn ghost sm" href="/api/sessions/${S.code}/export.xlsx?token=${TOKEN}">Export Excel</a><button class="btn ghost sm" id="copy">Copier le lien joueurs</button></div></div>
+  <div class="card"><h3>Agences</h3><table><tr><th>Agence</th><th>Connectés</th><th>Dilemme</th><th>Entretien</th><th>Décisions</th><th></th></tr>${rows}</table></div>
+  <div id="detail"></div>
+  ${hist.length ? `<div class="card"><h3>Classement</h3><table><tr><th>Rang</th><th>Agence</th><th class="num">Score</th><th class="num">Éco.</th><th class="num">Social</th><th class="num">CA</th><th class="num">Croiss.</th><th class="num">QVCT</th><th class="num">Engagement</th></tr>${S.classement.map((r, i) => `<tr><td class="rank">${i + 1}</td><td>${esc(r.name)}<br><span class="small muted">${esc(r.equipe)}</span></td><td class="num"><b>${r.score ? fmt1(r.score.total) : '–'}</b></td><td class="num">${r.score ? fmt1(r.score.eco) : '–'}</td><td class="num">${r.score ? fmt1(r.score.social) : '–'}</td><td class="num">${fmt(r.ca)}</td><td class="num">${r.score ? sgn(r.score.croissance) + ' %' : '–'}</td><td class="num">${fmt1(r.barometre)}</td><td class="num">${fmt1(r.engagement)}</td></tr>`).join('')}</table></div>
+  <div class="grid2"><div class="card"><h3>Chiffre d'affaires</h3>${chart('ca', 'CA')}</div><div class="card"><h3>Baromètre QVCT</h3>${chart('barometre', 'QVCT', { min: 0, max: 100 })}</div><div class="card"><h3>Engagement</h3>${chart('engagement', 'Engagement', { min: 0, max: 100 })}</div><div class="card"><h3>Satisfaction client</h3>${chart('satisfaction', 'Satisfaction', { min: 0, max: 100 })}</div></div>` : ''}
+  <div class="card"><h3>Programme</h3>${ph === 'lobby' ? `<div class="grid3"><div><label>Nombre d'agences</label><input id="nbA" type="number" min="1" max="10" value="${S.config.nbAgences}"></div><div><label>Nombre de périodes</label><select id="nbP">${[3, 4, 5, 6].map(n => `<option ${n === N ? 'selected' : ''}>${n}</option>`).join('')}</select></div><div><label>Handicap de Nicolas</label><select id="hp"><option value="0">Désactivé</option>${[2, 3, 4, 5, 6].map(n => `<option value="${n}" ${n === S.config.handicapPeriode ? 'selected' : ''}>Période ${n}</option>`).join('')}</select></div></div>` : `<p class="small muted">Handicap de Nicolas : ${S.config.handicapPeriode ? 'survenue à la période ' + S.config.handicapPeriode : 'désactivé'}.</p>`}<div id="prog">${progTable(S.config.programme, N, ph === 'lobby')}</div>${ph === 'lobby' ? '<div class="row" style="margin-top:10px"><span class="sp"></span><button class="btn" id="saveProg">Enregistrer le programme</button></div>' : ''}</div>
+  <div class="card"><h3>Journal</h3><div class="small">${S.journal.slice().reverse().map(j => `<div class="muted">${new Date(j.t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} · ${esc(j.text)}</div>`).join('')}</div></div>`;
+  const o = $('#open'); if (o) o.onclick = () => act('open');
+  const c = $('#close'); if (c) c.onclick = () => { if (c.dataset.armed) act('close'); else { c.dataset.armed = 1; c.textContent = valid < S.agences.length ? `Confirmer : ${S.agences.length - valid} agence(s) n'ont pas validé` : 'Confirmer le calcul'; } };
+  $('#copy').onclick = () => { navigator.clipboard.writeText(joinUrl); toast('Lien copié.'); };
+  $$('[data-sel]').forEach(b => b.onclick = () => { sel = sel === +b.dataset.sel ? null : +b.dataset.sel; render(); });
+  $$('.noteIn').forEach(i => i.onchange = () => act('note', { agence: i.dataset.a, periode: S.periode, note: i.value }).then(r => r.ok && toast('Note enregistrée.')));
+  const sp = $('#saveProg'); if (sp) sp.onclick = () => act('programme', { config: { nbAgences: +$('#nbA').value, nbPeriodes: +$('#nbP').value, handicapPeriode: +$('#hp').value, programme: readProg() } }).then(r => r.ok && toast('Programme enregistré.'));
+  const nbp = $('#nbP'); if (nbp && ph === 'lobby') nbp.onchange = () => { $('#prog').innerHTML = progTable(readProg(), +nbp.value); };
+  renderDetail();
+}
+
+function renderDetail() {
+  const a = S.agences.find(x => x.id === sel); if (!a) return;
+  const ents = Object.entries(a.entretiens).map(([p, e]) => {
+    const sc = CAT.entretiens.find(x => x.id === e.scenario) || {}; const nom = (CAT.collabs.find(c => c.id === sc.collab) || {}).nom;
+    return `<div class="panel" style="margin-bottom:12px"><div class="row"><b>P${p} · ${esc(sc.theme)} · ${esc(nom)}</b><span class="sp"></span>${e.note != null ? `<span class="pill coral">${fmt1(e.noteAnimateur != null ? e.noteAnimateur : e.note)}/20</span>` : ''}</div>
+      <div class="chat" style="max-height:340px;margin-top:10px">${e.transcript.map(m => `<div class="msg ${m.from}"><span class="who">${m.from === 'manager' ? 'Directeur' : esc(nom)}</span>${esc(m.text)}</div>`).join('')}</div>
+      ${e.evaluation ? `<p class="small"><b>Points forts :</b> ${esc(e.evaluation.pointsForts)}<br><b>Axes de progrès :</b> ${esc(e.evaluation.axesProgres)}</p>` : ''}</div>`;
+  }).join('') || '<p class="muted">Aucun entretien.</p>';
+  const dils = Object.entries(a.dilemmesPasses).map(([p, x]) => { const dl = CAT.dilemmes.find(d => d.id === x.dilemme); return `<tr><td>P${p}</td><td>${esc(dl && dl.titre)}</td><td>${x.option ? x.option.toUpperCase() : '–'}${x.auto ? ' (report)' : ''}</td><td class="small">${esc(x.justification || '')}</td></tr>`; }).join('');
+  const rep = Object.entries(a.reporting).map(([p, r]) => `<tr><td>P${p}</td><td class="small">${esc(r.choix || '')}</td><td class="small">${esc(r.attendus || '')}</td><td class="small">${esc(r.analyse || '')}</td></tr>`).join('');
+  const d = a.brouillon;
+  $('#detail').innerHTML = `<div class="card accent"><div class="row"><h2 style="margin:0">${esc(a.name)} · ${esc(a.equipe)}</h2><span class="sp"></span><button class="btn sm" id="closeDet">Fermer</button></div>
+    <div class="grid2" style="margin-top:12px"><div><h3>Décisions ${a.valide ? 'validées' : 'en cours'}</h3><p class="small">${d.amenagement && a.etat.handicap ? 'Aménagement Nicolas : ' + esc(CAT.amenagements[d.amenagement].label) + ' · ' : ''}Étape : ${ETAPES[d.etape]} · TPE ${d.partTPE} % · service ${d.service} · télétravail ${d.teletravail} j · heures sup ${d.heuresSup} % · transfert ${d.transfert} h · rituels ${d.rituels ? 'oui' : 'non'} · IA niveau ${d.niveauIA} · gouvernance ${d.gouvernance}</p>
+      <p class="small">Budgets : ${Object.entries(d.budget).map(([k, v]) => k + ' ' + v).join(' · ')}</p><p class="small">Heures : ${Object.entries(d.heures).map(([k, v]) => k + ' ' + v).join(' · ')}</p>
+      ${a.objectifs ? `<h3>Contrat d'objectifs</h3><p class="small">CA ${fmt(a.objectifs.ca)} · satisfaction ${a.objectifs.satisfaction} · QVCT ${a.objectifs.barometre} · engagement ${a.objectifs.engagement}<br>${esc(a.objectifs.strategie)}</p>` : ''}
+      <h3>Dilemmes</h3><table>${dils || '<tr><td class="muted">Aucun</td></tr>'}</table>
+      <h3 style="margin-top:14px">Reporting</h3><table><tr><th>P</th><th>Choix</th><th>Attendus</th><th>Analyse</th></tr>${rep}</table></div>
+    <div><h3>Entretiens</h3>${ents}</div></div></div>`;
+  $('#closeDet').onclick = () => { sel = null; render(); };
+}
+</script>
+</body>
+</html>

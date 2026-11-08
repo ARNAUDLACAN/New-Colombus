@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>New Colombus — Prendre la direction d'une agence</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="top"><div id="brand"></div><span class="sp"></span><a class="btn ghost sm" href="/animateur">Espace animateur</a></div>
+<div class="hero">
+  <div id="compass"></div>
+  <h1>New <span>Colombus</span></h1>
+  <p class="sub">Vous prenez la direction d'une agence de la Colombus Cie. Votre équipe, vos clients et vos décisions : le voyage commence.</p>
+</div>
+<div class="wrap" style="max-width:560px">
+  <div class="card accent">
+    <div id="step1">
+      <label for="code">Code de la partie</label>
+      <input id="code" class="codein" maxlength="5" autocomplete="off" placeholder="•••••">
+      <div class="row" style="margin-top:16px"><button class="btn coral big" id="go1">Embarquer</button></div>
+    </div>
+    <div id="step2" class="hidden">
+      <h3 id="ptitle"></h3>
+      <label>Votre agence</label>
+      <div id="agences" class="grid2"></div>
+      <div id="newTeam">
+        <label for="team">Nom de votre équipe de direction</label>
+        <input id="team" maxlength="40" placeholder="ex. Les Navigateurs">
+      </div>
+      <div id="joinTeam" class="hidden">
+        <div class="alert">Cette agence a déjà une équipe. Pour la rejoindre depuis un autre appareil, saisissez le code d'équipe affiché sur l'écran de vos coéquipiers.</div>
+        <label for="ceq">Code d'équipe</label>
+        <input id="ceq" maxlength="4" class="codein" style="font-size:1.4rem">
+      </div>
+      <div class="row" style="margin-top:16px"><button class="btn ghost" id="back">Retour</button><span class="sp"></span><button class="btn coral" id="go2">Prendre la direction</button></div>
+    </div>
+  </div>
+  <p class="muted small" style="text-align:center;margin-top:18px">Un seul appareil par équipe suffit. Vos coéquipiers peuvent rejoindre la même agence avec le code d'équipe.</p>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/common.js"></script>
+<script>
+$('#brand').innerHTML = brandHTML(); $('#compass').innerHTML = compassSVG;
+const sock = io();
+let info = null, choix = null;
+const code = () => $('#code').value.trim().toUpperCase();
+// reprise automatique
+const saved = JSON.parse(localStorage.getItem('nc-team') || 'null');
+if (qs('code')) $('#code').value = qs('code');
+async function step1() {
+  const r = await emit(sock, 'lobby:info', { code: code() }); if (!r.ok) return;
+  info = r; $('#ptitle').textContent = r.titre + (r.campus ? ' · ' + r.campus : '');
+  $('#agences').innerHTML = r.agences.map(a => `<button class="opt" data-id="${a.id}" style="margin:0"><b>${esc(a.name)}</b><br><span class="small muted">${a.prise ? 'Équipe : ' + esc(a.equipe) : 'Libre'}</span></button>`).join('');
+  $$('#agences .opt').forEach(b => b.onclick = () => { choix = +b.dataset.id; $$('#agences .opt').forEach(x => x.classList.toggle('on', x === b)); const a = info.agences.find(x => x.id === choix); $('#newTeam').classList.toggle('hidden', a.prise); $('#joinTeam').classList.toggle('hidden', !a.prise); });
+  $('#step1').classList.add('hidden'); $('#step2').classList.remove('hidden');
+}
+$('#go1').onclick = step1; $('#code').onkeydown = e => { if (e.key === 'Enter') step1(); };
+$('#back').onclick = () => { $('#step2').classList.add('hidden'); $('#step1').classList.remove('hidden'); };
+$('#go2').onclick = async () => {
+  if (!choix) return toast('Choisissez une agence.', true);
+  const tok = saved && saved.code === code() && saved.agence === choix ? saved.teamToken : undefined;
+  const r = await emit(sock, 'team:join', { code: code(), agence: choix, nomEquipe: $('#team').value, codeEquipe: $('#ceq').value, teamToken: tok });
+  if (!r.ok) return;
+  localStorage.setItem('nc-team', JSON.stringify({ code: code(), agence: choix, teamToken: r.teamToken }));
+  location.href = '/equipe?code=' + code();
+};
+if (saved && !qs('code')) { $('#code').value = saved.code; }
+</script>
+</body>
+</html>
